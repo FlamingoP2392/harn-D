@@ -1,0 +1,23 @@
+{
+  "name": "หารดี — มื้อดี ๆ หารกันได้",
+  "short_name": "หารดี",
+  "lang": "th",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8f9f5",
+  "theme_color": "#344b37",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

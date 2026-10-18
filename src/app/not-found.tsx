@@ -1,0 +1,1 @@
+export default function NotFound(){return <main className="app-loading"><h1 style={{fontSize:25}}>ไม่พบหน้านี้</h1><p>กลับไปเริ่มมื้อดี ๆ ด้วยกัน</p><a href="/" className="primary">กลับหน้าแบ่งบิล</a></main>;}
