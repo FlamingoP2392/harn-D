@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import type { User } from '@supabase/supabase-js';
+import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import { ArrowDownToLine, ArrowRight, ArrowUpRight, CalendarDays, Check, CheckCheck, ChevronDown, ChevronRight, CircleHelp, Cloud, Coffee, CreditCard, Download, History, LayoutDashboard, Leaf, LoaderCircle, LogIn, LogOut, Menu, Moon, Plus, ReceiptText, Search, Settings2, Share2, ShieldCheck, Sparkles, Sun, Trash2, Users, UtensilsCrossed, Wallet, X } from 'lucide-react';
 import { Summary, Avatar } from './summary';
 import { Modal } from './modal';
@@ -36,6 +37,9 @@ function ThaiDate({value}:{value:string}){return <>{new Date(value+'T12:00:00').
 export function BillApp(){
   const {openTerms}=useTerms();
   const [loginAccepted,setLoginAccepted]=useState(false);
+  const [captchaToken,setCaptchaToken]=useState<string|null>(null);
+  const turnstileRef=useRef<TurnstileInstance>(null);
+  const turnstileSiteKey=process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
   const [bill,setBill]=useState<BillDraft|null>(null);
   const [localBills,setLocalBills]=useState<BillDraft[]>([]);
   const [cloudBills,setCloudBills]=useState<BillDraft[]>([]);
@@ -134,7 +138,7 @@ export function BillApp(){
     const channel=client.channel('my-bills-'+user.id).on('postgres_changes',{event:'*',schema:'public',table:'bills',filter:'owner_id=eq.'+user.id},()=>{void loadCloud();}).subscribe();
     return()=>{void client.removeChannel(channel);};
   },[user,loadCloud]);
-  useEffect(()=>{if(dialog!=='login')setLoginAccepted(false);},[dialog]);
+  useEffect(()=>{if(dialog!=='login'){setLoginAccepted(false);setCaptchaToken(null);}},[dialog]);
   useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(''),6500);return()=>clearTimeout(timer);},[notice]);
   useEffect(()=>()=>{if(exportUrl)URL.revokeObjectURL(exportUrl);},[exportUrl]);
   function update(change:(current:BillDraft)=>BillDraft){revision.current++;setShareUrl('');setBill(current=>current?{...change(current),updatedAt:new Date().toISOString()}:current);}
@@ -184,10 +188,13 @@ export function BillApp(){
     if(busy)return;
     if(!supabaseConfigured){setNotice('ตั้งค่า Supabase ใน .env.local เพื่อเปิดระบบสมาชิก');return;}
     if(provider==='email'&&!z.email().safeParse(email.trim()).success){setNotice('กรอกอีเมลให้ถูกต้อง');return;}
-    rememberCurrent();if(bill)writeLocalBills([bill,...localBills.filter(b=>b.id!==bill.id)],bill.id);
+    rememberCurrent();
+    if(provider==='email'&&turnstileSiteKey&&!captchaToken){setNotice('กรุณายืนยันว่าคุณไม่ใช่บอทก่อน');return;}
+    if(bill)writeLocalBills([bill,...localBills.filter(b=>b.id!==bill.id)],bill.id);
+
     setBusy(true);try{
       const client=browserClient();const redirectTo=location.origin+'/auth/callback';
-      const response=provider==='google'?await client.auth.signInWithOAuth({provider:'google',options:{redirectTo}}):await client.auth.signInWithOtp({email:email.trim(),options:{emailRedirectTo:redirectTo}});
+      const response=provider==='google'?await client.auth.signInWithOAuth({provider:'google',options:{redirectTo}}):await client.auth.signInWithOtp({email:email.trim(),options:{emailRedirectTo:redirectTo,...(captchaToken?{captchaToken}:{})}});
       if(response.error)throw response.error;
       if(provider==='email')setNotice('ส่งลิงก์เข้าสู่ระบบไปที่อีเมลแล้ว กรุณาตรวจกล่องจดหมาย');
     }catch(error){setNotice(error instanceof Error?error.message:'เข้าสู่ระบบไม่สำเร็จ');}finally{setBusy(false);}
@@ -313,7 +320,7 @@ export function BillApp(){
       {!supabaseConfigured&&<div className="setup-notice"><Cloud size={22}/><strong>ระบบสมาชิกยังไม่ได้เชื่อมต่อ</strong><p>โหมด guest ใช้งานได้ครบในเครื่องนี้ เจ้าของเว็บต้องตั้งค่า Supabase ก่อนเปิดสมัครสมาชิก</p></div>}
       <button className="secondary google-button" onClick={()=>{void login('google');}} disabled={busy||!loginAccepted||!supabaseConfigured}><span className="google-g" aria-hidden="true">G</span>ดำเนินการต่อด้วย Google</button>
       <div className="or-line"><span>หรือใช้อีเมล</span></div>
-      <form onSubmit={event=>{event.preventDefault();void login('email');}}><label className="field">อีเมล<input aria-label="อีเมลเข้าสู่ระบบ" type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" required/></label><button className="primary full-width" disabled={busy||!loginAccepted||!supabaseConfigured}>{busy?<LoaderCircle className="spin" size={17}/>:<LogIn size={17}/>}ส่งลิงก์เข้าสู่ระบบ</button></form>
+      <form onSubmit={event=>{event.preventDefault();void login('email');}}><label className="field">อีเมล<input aria-label="อีเมลเข้าสู่ระบบ" type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" required/></label>{turnstileSiteKey&&<Turnstile ref={turnstileRef} siteKey={turnstileSiteKey} onSuccess={setCaptchaToken} onExpire={()=>setCaptchaToken(null)} onError={()=>setCaptchaToken(null)}/>}<button className="primary full-width" disabled={busy||!loginAccepted||!supabaseConfigured||(Boolean(turnstileSiteKey)&&!captchaToken)}>{busy?<LoaderCircle className="spin" size={17}/>:<LogIn size={17}/>}ส่งลิงก์เข้าสู่ระบบ</button></form>
       <p className="subtle-note center">ไม่ต้องจำรหัสผ่าน เราจะส่งลิงก์ไปที่อีเมลของคุณ</p>
     </Modal>}
     {dialog==='profile'&&user&&<Modal title="บัญชีของฉัน" onClose={()=>setDialog(null)}><p className="profile-email">{user.email}</p><label className="field">ชื่อที่แสดง<input aria-label="ชื่อโปรไฟล์" value={displayName} onChange={e=>setDisplayName(e.target.value)} maxLength={80}/></label><label className="field">เลขพร้อมเพย์ของผู้จ่าย<input aria-label="เลขพร้อมเพย์" inputMode="numeric" value={promptpayId} onChange={e=>setPromptpayId(e.target.value)} maxLength={13} placeholder="เบอร์โทร 10 หลัก / เลข 13 หลัก"/><small>เพื่อนจะเห็นเลขนี้เมื่อคุณสร้างลิงก์แชร์ ใช้เลขของคนจ่ายหน้าร้าน</small></label><button className="primary full-width" disabled={busy} onClick={()=>{void saveProfile();}}><Check size={17}/>บันทึกโปรไฟล์</button><button className="secondary full-width logout" onClick={()=>{void browserClient().auth.signOut().then(({error})=>{if(error){setNotice('ออกจากระบบไม่สำเร็จ');return;}setDialog(null);setNotice('ออกจากระบบแล้ว');});}}><LogOut size={16}/>ออกจากระบบ</button></Modal>}
